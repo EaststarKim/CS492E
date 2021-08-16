@@ -1,0 +1,125 @@
+library(ggplot2)
+library(dplyr)
+library(CausalImpact)
+library(corrplot)
+
+
+#Set ColNames and DataNames
+ColNames <- c('Year', 'Korea', 'S', 'BS', 'DG', 'IN', 'GJ', 'DJ', 'US', 'GG', 'KW', 'CB', 'CN', 'JB', 'JN', 'GB', 'GN', 'JJ')
+DataNames <- c('year', 'crime_rate', 'crime_case', 'arrest_rate', 'arrest_case', 'economic_growth', 'grdp', 'population', 'unemployment', 'rainfall', 'temperature', 'single_household', 'total_household', 'youth_unemployment', 'single_household_rate')
+
+#Load Data
+setwd("C:/Users/dongy/Desktop/project/Data")
+crime_rate <- read.csv('crime_rate.csv')
+crime_case <- read.csv('crime_case.csv')
+arrest_rate <- read.csv('arrest_rate.csv')
+arrest_case <- read.csv('arrest_case.csv')
+economic_growth <- read.csv('economic_growth.csv')
+grdp <- read.csv('grdp.csv')
+unemployment <- read.csv('unemployment_rate.csv')
+youth_unemployment <- read.csv('youth_unemployment_rate.csv')
+rainfall <- read.csv('rainfall.csv')
+temperature <- read.csv('temperature.csv')
+population <- read.csv('population.csv')
+single_household <- read.csv('single_household.csv')
+total_household <- read.csv('total_household.csv')
+single_household_rate <- read.csv('single_household_rate.csv')
+
+colnames(crime_rate) <- ColNames
+colnames(crime_case) <- ColNames
+colnames(arrest_rate) <- ColNames
+colnames(arrest_case) <- ColNames
+colnames(economic_growth) <- ColNames
+colnames(grdp) <- ColNames
+colnames(population) <- ColNames
+colnames(unemployment) <- ColNames
+colnames(rainfall) <- ColNames
+colnames(temperature) <- ColNames
+colnames(single_household) <- ColNames
+colnames(total_household) <- ColNames
+colnames(youth_unemployment) <- ColNames
+colnames(single_household_rate) <- ColNames
+
+#Regional seperation
+regional_data <- function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, cn, dn) {
+  for(name in cn){
+    df <- cbind(2000:2018, x1[name], x2[name], x3[name], x4[name], x5[name], x6[name], x7[name], x8[name], x9[name], x10[name], x11[name], x12[name], x13[name], x14[name])
+    colnames(df) <- dn
+    write.csv(df, file=paste(name, '.csv', sep=''), row.names=FALSE)
+  }
+}
+regional_data(crime_rate, crime_case, arrest_rate, arrest_case, economic_growth, grdp, population, unemployment, rainfall, temperature, single_household, total_household, youth_unemployment, single_household_rate, ColNames, DataNames)
+
+#Make concatenated data
+total_data <- function(x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, cn, dn) {
+  total <- data.frame()
+  for(name in cn){
+    df <- cbind(2000:2018, x1[name], x2[name], x3[name], x4[name], x5[name], x6[name], x7[name], x8[name], x9[name], x10[name], x11[name], x12[name], x13[name], x14[name])
+    colnames(df) <- dn
+    total <- rbind(total, df)
+  }
+  total
+}
+total <- total_data(crime_rate, crime_case, arrest_rate, arrest_case, economic_growth, grdp, population, unemployment, rainfall, temperature, single_household, total_household, youth_unemployment, single_household_rate, ColNames[-1], DataNames)
+
+#Try linear regression
+analysis <- lm(crime_rate~year+economic_growth+grdp+population+unemployment+rainfall+temperature+single_household+total_household+youth_unemployment+single_household_rate, data=total)
+x<-analysis$residuals
+x<-as.vector(x)
+max(x)
+min(x)
+hist(x, breaks = 20)
+drop1(analysis, test='F')
+
+#Correlation Analysis and plotting
+
+data <- read.csv('JJ.csv') #Select region hera
+M<-cor(data)
+corrplot.mixed(M, lower="circle", upper="number")
+
+region_korean = c('전국','서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시',
+                  '대전광역시', '울산광역시', '경기도', '강원도', '충청북도', '충청남도',
+                  '전라북도', '전라남도', '경상북도', '경상남도', '제주특별자치도')
+region_koreans = rep(region_korean, each=19)
+region_koreans
+total <- cbind(total, region_koreans)
+View(total)
+
+plot1 = ggplot(total[-(1:19),], aes(x=single_household_rate, y=crime_rate, color=region_koreans)) + 
+  labs(x="Single household rate", y="Crime rate") +
+  ggtitle("Single household rate vs Crime rate") +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 15, color = "darkblue")) +
+  scale_color_discrete(name="지역") +
+  geom_line()
+
+plot1
+
+#Load additional data
+more_col1=read.csv('sexual_assault.csv')
+more_col2=read.csv('second_sexual_assault.csv')
+more_col3=read.csv('second_conviction.csv')
+more_data=data.frame(sexual_assault_case=more_col1[[2]],
+                     second_sexual_assault_case=more_col2[[2]],
+                     second_conviction_case=more_col3[[2]])
+
+#Time-Series Analysis
+causal.impact<-function(i,x,y,a){
+  year=2000:2018
+  pre.period=c(2000,y)
+  post.period=c(y+1,2018)
+  if(x>0)data=total[(i*19-18):(i*19),c(x,6:15)]
+  else data=cbind(more_data[-x],total[(i*19-18):(i*19),c(6:15)])
+  data=zoo(data,year)
+  CausalImpact(data,pre.period,post.period,alpha=a)
+}
+my.function<-function(data,i,x,y=2009,a=0.05){#i for region, x for crime index
+  impact=causal.impact(i,x,y,a)
+  if(x<0)x=-x
+  colname=names(data)[x]
+  plot(impact)+ggtitle(paste('[',region_korean[i],']',gsub('_',' ',names(data)[x])))
+}
+my.function(total,5,4)
+my.function(more_data,1,-3,2010)
+plot(impact)
+summary(impact,"report")
+
